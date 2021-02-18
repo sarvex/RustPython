@@ -157,6 +157,11 @@ def wait_all(proms):
         proms = tuple(proms)
     num_completed = 0
     num_proms = len(proms)
+
+    if num_proms == 0:
+        cbs.resolve(())
+        return cbs
+
     results = [None] * num_proms
 
     # needs to be a separate function for creating a closure in a loop
