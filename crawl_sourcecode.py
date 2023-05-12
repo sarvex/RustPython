@@ -28,7 +28,7 @@ shift = 3
 def print_node(node, indent=0):
     indents = ' ' * indent
     if isinstance(node, ast.AST):
-        lineno = 'row={}'.format(node.lineno) if hasattr(node, 'lineno') else ''
+        lineno = f'row={node.lineno}' if hasattr(node, 'lineno') else ''
         print(indents, "NODE", node.__class__.__name__, lineno)
         for field in node._fields:
             print(indents,'-', field)

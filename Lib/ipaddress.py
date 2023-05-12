@@ -192,9 +192,7 @@ def _count_righthand_zero_bits(number, bits):
         The number of zero bits on the right hand side of the number.
 
     """
-    if number == 0:
-        return bits
-    return min(bits, (~number & (number-1)).bit_length())
+    return bits if number == 0 else min(bits, (~number & (number-1)).bit_length())
 
 
 def summarize_address_range(first, last):
@@ -227,8 +225,7 @@ def summarize_address_range(first, last):
              isinstance(last, _BaseAddress))):
         raise TypeError('first and last must be IP addresses, not networks')
     if first.version != last.version:
-        raise TypeError("%s and %s are not of the same version" % (
-                         first, last))
+        raise TypeError(f"{first} and {last} are not of the same version")
     if first > last:
         raise ValueError('last IP address must be greater than first')
 
@@ -245,8 +242,7 @@ def summarize_address_range(first, last):
     while first_int <= last_int:
         nbits = min(_count_righthand_zero_bits(first_int, ip_bits),
                     (last_int - first_int + 1).bit_length() - 1)
-        net = ip((first_int, ip_bits - nbits))
-        yield net
+        yield ip((first_int, ip_bits - nbits))
         first_int += 1 << nbits
         if first_int - 1 == ip._ALL_ONES:
             break
@@ -292,11 +288,11 @@ def _collapse_addresses_internal(addresses):
     # Then iterate over resulting networks, skipping subsumed subnets
     last = None
     for net in sorted(subnets.values()):
-        if last is not None:
-            # Since they are sorted, last.network_address <= net.network_address
-            # is a given.
-            if last.broadcast_address >= net.broadcast_address:
-                continue
+        if (
+            last is not None
+            and last.broadcast_address >= net.broadcast_address
+        ):
+            continue
         yield net
         last = net
 
@@ -327,28 +323,21 @@ def collapse_addresses(addresses):
     for ip in addresses:
         if isinstance(ip, _BaseAddress):
             if ips and ips[-1]._version != ip._version:
-                raise TypeError("%s and %s are not of the same version" % (
-                                 ip, ips[-1]))
+                raise TypeError(f"{ip} and {ips[-1]} are not of the same version")
             ips.append(ip)
         elif ip._prefixlen == ip._max_prefixlen:
             if ips and ips[-1]._version != ip._version:
-                raise TypeError("%s and %s are not of the same version" % (
-                                 ip, ips[-1]))
+                raise TypeError(f"{ip} and {ips[-1]} are not of the same version")
             try:
                 ips.append(ip.ip)
             except AttributeError:
                 ips.append(ip.network_address)
+        elif nets and nets[-1]._version != ip._version:
+            raise TypeError(f"{ip} and {nets[-1]} are not of the same version")
         else:
-            if nets and nets[-1]._version != ip._version:
-                raise TypeError("%s and %s are not of the same version" % (
-                                 ip, nets[-1]))
             nets.append(ip)
 
-    # sort and dedup
-    ips = sorted(set(ips))
-
-    # find consecutive address ranges in the sorted sequence and summarize them
-    if ips:
+    if ips := sorted(set(ips)):
         for first, last in _find_address_range(ips):
             addrs.extend(summarize_address_range(first, last))
 
@@ -550,9 +539,7 @@ class _IPAddressBase:
             address = _split_optional_netmask(address)
 
         # Constructing from a tuple (addr, [mask])
-        if len(address) > 1:
-            return address
-        return address[0], cls._max_prefixlen
+        return address if len(address) > 1 else (address[0], cls._max_prefixlen)
 
     def __reduce__(self):
         return self.__class__, (str(self),)
@@ -585,11 +572,8 @@ class _BaseAddress(_IPAddressBase):
         if not isinstance(other, _BaseAddress):
             return NotImplemented
         if self._version != other._version:
-            raise TypeError('%s and %s are not of the same version' % (
-                             self, other))
-        if self._ip != other._ip:
-            return self._ip < other._ip
-        return False
+            raise TypeError(f'{self} and {other} are not of the same version')
+        return self._ip < other._ip if self._ip != other._ip else False
 
     # Shorthand for Integer addition and subtraction. This is not
     # meant to ever support addition/subtraction of addresses.
@@ -649,16 +633,8 @@ class _BaseAddress(_IPAddressBase):
 
         # Set some defaults
         if fmt_base == 'n':
-            if self._version == 4:
-                fmt_base = 'b'  # Binary is default for ipv4
-            else:
-                fmt_base = 'x'  # Hex is default for ipv6
-
-        if fmt_base == 'b':
-            padlen = self._max_prefixlen
-        else:
-            padlen = self._max_prefixlen // 4
-
+            fmt_base = 'b' if self._version == 4 else 'x'
+        padlen = self._max_prefixlen if fmt_base == 'b' else self._max_prefixlen // 4
         if grouping:
             padlen += padlen // 4 - 1
 
@@ -717,13 +693,10 @@ class _BaseNetwork(_IPAddressBase):
         if not isinstance(other, _BaseNetwork):
             return NotImplemented
         if self._version != other._version:
-            raise TypeError('%s and %s are not of the same version' % (
-                             self, other))
+            raise TypeError(f'{self} and {other} are not of the same version')
         if self.network_address != other.network_address:
             return self.network_address < other.network_address
-        if self.netmask != other.netmask:
-            return self.netmask < other.netmask
-        return False
+        return self.netmask < other.netmask if self.netmask != other.netmask else False
 
     def __eq__(self, other):
         try:
@@ -770,11 +743,11 @@ class _BaseNetwork(_IPAddressBase):
 
     @property
     def with_netmask(self):
-        return '%s/%s' % (self.network_address, self.netmask)
+        return f'{self.network_address}/{self.netmask}'
 
     @property
     def with_hostmask(self):
-        return '%s/%s' % (self.network_address, self.hostmask)
+        return f'{self.network_address}/{self.hostmask}'
 
     @property
     def num_addresses(self):
@@ -829,21 +802,19 @@ class _BaseNetwork(_IPAddressBase):
             ValueError: If other is not completely contained by self.
 
         """
-        if not self._version == other._version:
-            raise TypeError("%s and %s are not of the same version" % (
-                             self, other))
+        if self._version != other._version:
+            raise TypeError(f"{self} and {other} are not of the same version")
 
         if not isinstance(other, _BaseNetwork):
-            raise TypeError("%s is not a network object" % other)
+            raise TypeError(f"{other} is not a network object")
 
         if not other.subnet_of(self):
-            raise ValueError('%s not contained in %s' % (other, self))
+            raise ValueError(f'{other} not contained in {self}')
         if other == self:
             return
 
         # Make sure we're comparing the network of other.
-        other = other.__class__('%s/%s' % (other.network_address,
-                                           other.prefixlen))
+        other = other.__class__(f'{other.network_address}/{other.prefixlen}')
 
         s1, s2 = self.subnets()
         while s1 != other and s2 != other:
@@ -902,8 +873,7 @@ class _BaseNetwork(_IPAddressBase):
         """
         # does this need to raise a ValueError?
         if self._version != other._version:
-            raise TypeError('%s and %s are not of the same type' % (
-                             self, other))
+            raise TypeError(f'{self} and {other} are not of the same type')
         # self._version == other._version below here:
         if self.network_address < other.network_address:
             return -1
@@ -912,9 +882,7 @@ class _BaseNetwork(_IPAddressBase):
         # self.network_address == other.network_address below here:
         if self.netmask < other.netmask:
             return -1
-        if self.netmask > other.netmask:
-            return 1
-        return 0
+        return 1 if self.netmask > other.netmask else 0
 
     def _get_networks_key(self):
         """Network-only key function.
@@ -976,8 +944,7 @@ class _BaseNetwork(_IPAddressBase):
         end = int(self.broadcast_address) + 1
         step = (int(self.hostmask) + 1) >> prefixlen_diff
         for new_addr in range(start, end, step):
-            current = self.__class__((new_addr, new_prefixlen))
-            yield current
+            yield self.__class__((new_addr, new_prefixlen))
 
     def supernet(self, prefixlen_diff=1, new_prefix=None):
         """The supernet containing the current network.
@@ -1433,18 +1400,15 @@ class IPv4Interface(IPv4Address):
 
     @property
     def with_prefixlen(self):
-        return '%s/%s' % (self._string_from_ip_int(self._ip),
-                          self._prefixlen)
+        return f'{self._string_from_ip_int(self._ip)}/{self._prefixlen}'
 
     @property
     def with_netmask(self):
-        return '%s/%s' % (self._string_from_ip_int(self._ip),
-                          self.netmask)
+        return f'{self._string_from_ip_int(self._ip)}/{self.netmask}'
 
     @property
     def with_hostmask(self):
-        return '%s/%s' % (self._string_from_ip_int(self._ip),
-                          self.hostmask)
+        return f'{self._string_from_ip_int(self._ip)}/{self.hostmask}'
 
 
 class IPv4Network(_BaseV4, _BaseNetwork):
@@ -1504,7 +1468,7 @@ class IPv4Network(_BaseV4, _BaseNetwork):
         packed = int(self.network_address)
         if packed & int(self.netmask) != packed:
             if strict:
-                raise ValueError('%s has host bits set' % self)
+                raise ValueError(f'{self} has host bits set')
             else:
                 self.network_address = IPv4Address(packed &
                                                    int(self.netmask))
@@ -1524,9 +1488,10 @@ class IPv4Network(_BaseV4, _BaseNetwork):
             iana-ipv4-special-registry.
 
         """
-        return (not (self.network_address in IPv4Network('100.64.0.0/10') and
-                    self.broadcast_address in IPv4Network('100.64.0.0/10')) and
-                not self.is_private)
+        return (
+            self.network_address not in IPv4Network('100.64.0.0/10')
+            or self.broadcast_address not in IPv4Network('100.64.0.0/10')
+        ) and not self.is_private
 
 
 class _IPv4Constants:
@@ -1917,7 +1882,7 @@ class IPv6Address(_BaseV6, _BaseAddress):
 
     def __str__(self):
         ip_str = super().__str__()
-        return ip_str + '%' + self._scope_id if self._scope_id else ip_str
+        return f'{ip_str}%{self._scope_id}' if self._scope_id else ip_str
 
     def __hash__(self):
         return hash((self._ip, self._scope_id))
@@ -2051,9 +2016,11 @@ class IPv6Address(_BaseV6, _BaseAddress):
             IPv4 mapped address. Return None otherwise.
 
         """
-        if (self._ip >> 32) != 0xFFFF:
-            return None
-        return IPv4Address(self._ip & 0xFFFFFFFF)
+        return (
+            None
+            if (self._ip >> 32) != 0xFFFF
+            else IPv4Address(self._ip & 0xFFFFFFFF)
+        )
 
     @property
     def teredo(self):
@@ -2137,18 +2104,15 @@ class IPv6Interface(IPv6Address):
 
     @property
     def with_prefixlen(self):
-        return '%s/%s' % (self._string_from_ip_int(self._ip),
-                          self._prefixlen)
+        return f'{self._string_from_ip_int(self._ip)}/{self._prefixlen}'
 
     @property
     def with_netmask(self):
-        return '%s/%s' % (self._string_from_ip_int(self._ip),
-                          self.netmask)
+        return f'{self._string_from_ip_int(self._ip)}/{self.netmask}'
 
     @property
     def with_hostmask(self):
-        return '%s/%s' % (self._string_from_ip_int(self._ip),
-                          self.hostmask)
+        return f'{self._string_from_ip_int(self._ip)}/{self.hostmask}'
 
     @property
     def is_unspecified(self):
@@ -2213,7 +2177,7 @@ class IPv6Network(_BaseV6, _BaseNetwork):
         packed = int(self.network_address)
         if packed & int(self.netmask) != packed:
             if strict:
-                raise ValueError('%s has host bits set' % self)
+                raise ValueError(f'{self} has host bits set')
             else:
                 self.network_address = IPv6Address(packed &
                                                    int(self.netmask))

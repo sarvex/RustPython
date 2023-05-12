@@ -26,6 +26,7 @@ Here are some of the useful functions provided by this module:
     signature() - get a Signature object for the callable
 """
 
+
 # This module is in the public domain.  No warranties.
 
 __author__ = ('Ka-Ping Yee <ping@lfw.org>',
@@ -54,7 +55,7 @@ from collections import namedtuple, OrderedDict
 # We try to get them from dis to avoid duplication
 mod_dict = globals()
 for k, v in dis.COMPILER_FLAG_NAMES.items():
-    mod_dict["CO_" + v] = k
+    mod_dict[f"CO_{v}"] = k
 
 # See Include/object.h
 TPFLAGS_IS_ABSTRACT = 1 << 20
@@ -175,9 +176,7 @@ def _has_code_flag(f, flag):
     while ismethod(f):
         f = f.__func__
     f = functools._unwrap_partial(f)
-    if not isfunction(f):
-        return False
-    return bool(f.__code__.co_flags & flag)
+    return False if not isfunction(f) else bool(f.__code__.co_flags & flag)
 
 def isgeneratorfunction(obj):
     """Return true if the object is a user-defined generator function.
@@ -328,10 +327,7 @@ def isabstract(object):
 def getmembers(object, predicate=None):
     """Return all members of an object as (name, value) pairs sorted by name.
     Optionally, only return members that satisfy a given predicate."""
-    if isclass(object):
-        mro = (object,) + getmro(object)
-    else:
-        mro = ()
+    mro = (object,) + getmro(object) if isclass(object) else ()
     results = []
     processed = set()
     names = dir(object)
@@ -340,9 +336,11 @@ def getmembers(object, predicate=None):
     # attribute with the same name as a DynamicClassAttribute exists
     try:
         for base in object.__bases__:
-            for k, v in base.__dict__.items():
-                if isinstance(v, types.DynamicClassAttribute):
-                    names.append(k)
+            names.extend(
+                k
+                for k, v in base.__dict__.items()
+                if isinstance(v, types.DynamicClassAttribute)
+            )
     except AttributeError:
         pass
     for key in names:
@@ -408,9 +406,11 @@ def classify_class_attrs(cls):
     # this may result in duplicate entries if, for example, a virtual
     # attribute with the same name as a DynamicClassAttribute exists.
     for base in mro:
-        for k, v in base.__dict__.items():
-            if isinstance(v, types.DynamicClassAttribute):
-                names.append(k)
+        names.extend(
+            k
+            for k, v in base.__dict__.items()
+            if isinstance(v, types.DynamicClassAttribute)
+        )
     result = []
     processed = set()
 
@@ -540,9 +540,7 @@ def _findclass(func):
         return None
     for name in func.__qualname__.split('.')[:-1]:
         cls = getattr(cls, name)
-    if not isclass(cls):
-        return None
-    return cls
+    return None if not isclass(cls) else cls
 
 def _finddoc(obj):
     if isclass(obj):
@@ -573,13 +571,11 @@ def _finddoc(obj):
     elif isbuiltin(obj):
         name = obj.__name__
         self = obj.__self__
-        if (isclass(self) and
-            self.__qualname__ + '.' + name == obj.__qualname__):
+        if isclass(self) and f'{self.__qualname__}.{name}' == obj.__qualname__:
             # classmethod
             cls = self
         else:
             cls = self.__class__
-    # Should be tested before isdatadescriptor().
     elif isinstance(obj, property):
         func = obj.fget
         name = func.__name__
@@ -621,9 +617,7 @@ def getdoc(object):
             doc = _finddoc(object)
         except (AttributeError, TypeError):
             return None
-    if not isinstance(doc, str):
-        return None
-    return cleandoc(doc)
+    return None if not isinstance(doc, str) else cleandoc(doc)
 
 def cleandoc(doc):
     """Clean up indentation from docstrings.
@@ -638,8 +632,7 @@ def cleandoc(doc):
         # Find minimum indentation of any non-blank lines after first line.
         margin = sys.maxsize
         for line in lines[1:]:
-            content = len(line.lstrip())
-            if content:
+            if content := len(line.lstrip()):
                 indent = len(line) - content
                 margin = min(margin, indent)
         # Remove indentation.
@@ -676,9 +669,9 @@ def getfile(object):
         object = object.f_code
     if iscode(object):
         return object.co_filename
-    raise TypeError('module, class, method, function, traceback, frame, or '
-                    'code object was expected, got {}'.format(
-                    type(object).__name__))
+    raise TypeError(
+        f'module, class, method, function, traceback, frame, or code object was expected, got {type(object).__name__}'
+    )
 
 def getmodulename(path):
     """Return the module name for a given file, or None."""
@@ -687,10 +680,14 @@ def getmodulename(path):
     suffixes = [(-len(suffix), suffix)
                     for suffix in importlib.machinery.all_suffixes()]
     suffixes.sort() # try longest suffixes first, in case they overlap
-    for neglen, suffix in suffixes:
-        if fname.endswith(suffix):
-            return fname[:neglen]
-    return None
+    return next(
+        (
+            fname[:neglen]
+            for neglen, suffix in suffixes
+            if fname.endswith(suffix)
+        ),
+        None,
+    )
 
 def getsourcefile(object):
     """Return the filename that can be used to locate an object's source.
@@ -792,8 +789,7 @@ def findsource(object):
         if not (file.startswith('<') and file.endswith('>')):
             raise OSError('source code not available')
 
-    module = getmodule(object, file)
-    if module:
+    if module := getmodule(object, file):
         lines = linecache.getlines(file, module.__dict__)
     else:
         lines = linecache.getlines(file)
@@ -811,21 +807,19 @@ def findsource(object):
         # that's most probably not inside a function definition.
         candidates = []
         for i in range(len(lines)):
-            match = pat.match(lines[i])
-            if match:
+            if match := pat.match(lines[i]):
                 # if it's at toplevel, it's already the best one
                 if lines[i][0] == 'c':
                     return lines, i
                 # else add whitespace to candidate list
-                candidates.append((match.group(1), i))
-        if candidates:
-            # this will sort by whitespace, and by line number,
-            # less whitespace first
-            candidates.sort()
-            return lines, candidates[0][1]
-        else:
+                candidates.append((match[1], i))
+        if not candidates:
             raise OSError('could not find class definition')
 
+        # this will sort by whitespace, and by line number,
+        # less whitespace first
+        candidates.sort()
+        return lines, candidates[0][1]
     if ismethod(object):
         object = object.__func__
     if isfunction(object):
@@ -856,20 +850,17 @@ def getcomments(object):
         return None
 
     if ismodule(object):
-        # Look for a comment block at the top of the file.
-        start = 0
-        if lines and lines[0][:2] == '#!': start = 1
+        start = 1 if lines and lines[0][:2] == '#!' else 0
         while start < len(lines) and lines[start].strip() in ('', '#'):
-            start = start + 1
+            start += 1
         if start < len(lines) and lines[start][:1] == '#':
             comments = []
             end = start
             while end < len(lines) and lines[end][:1] == '#':
                 comments.append(lines[end].expandtabs())
-                end = end + 1
+                end += 1
             return ''.join(comments)
 
-    # Look for a preceding block of comments at the same indentation.
     elif lnum > 0:
         indent = indentsize(lines[lnum])
         end = lnum - 1
@@ -1020,9 +1011,7 @@ def getclasstree(classes, unique=False):
                 if unique and parent in classes: break
         elif c not in roots:
             roots.append(c)
-    for parent in children:
-        if parent not in classes:
-            roots.append(parent)
+    roots.extend(parent for parent in children if parent not in classes)
     return walktree(roots, children, None)
 
 # ------------------------------------------------ argument list extraction
@@ -1050,9 +1039,7 @@ def getargs(co):
     if co.co_flags & CO_VARARGS:
         varargs = co.co_varnames[nargs]
         nargs = nargs + 1
-    varkw = None
-    if co.co_flags & CO_VARKEYWORDS:
-        varkw = co.co_varnames[nargs]
+    varkw = co.co_varnames[nargs] if co.co_flags & CO_VARKEYWORDS else None
     return Arguments(args + kwonlyargs, varargs, varkw)
 
 ArgSpec = namedtuple('ArgSpec', 'args varargs keywords defaults')
@@ -1201,7 +1188,7 @@ def formatannotation(annotation, base_module=None):
     if isinstance(annotation, type):
         if annotation.__module__ in ('builtins', base_module):
             return annotation.__qualname__
-        return annotation.__module__+'.'+annotation.__qualname__
+        return f'{annotation.__module__}.{annotation.__qualname__}'
     return repr(annotation)
 
 def formatannotationrelativeto(object):
@@ -1210,14 +1197,7 @@ def formatannotationrelativeto(object):
         return formatannotation(annotation, module)
     return _formatannotation
 
-def formatargspec(args, varargs=None, varkw=None, defaults=None,
-                  kwonlyargs=(), kwonlydefaults={}, annotations={},
-                  formatarg=str,
-                  formatvarargs=lambda name: '*' + name,
-                  formatvarkw=lambda name: '**' + name,
-                  formatvalue=lambda value: '=' + repr(value),
-                  formatreturns=lambda text: ' -> ' + text,
-                  formatannotation=formatannotation):
+def formatargspec(args, varargs=None, varkw=None, defaults=None, kwonlyargs=(), kwonlydefaults={}, annotations={}, formatarg=str, formatvarargs=lambda name: f'*{name}', formatvarkw=lambda name: f'**{name}', formatvalue=lambda value: f'={repr(value)}', formatreturns=lambda text: f' -> {text}', formatannotation=formatannotation):
     """Format an argument spec from the values returned by getfullargspec.
 
     The first seven arguments are (args, varargs, varkw, defaults,
@@ -1240,8 +1220,9 @@ def formatargspec(args, varargs=None, varkw=None, defaults=None,
     def formatargandannotation(arg):
         result = formatarg(arg)
         if arg in annotations:
-            result += ': ' + formatannotation(annotations[arg])
+            result += f': {formatannotation(annotations[arg])}'
         return result
+
     specs = []
     if defaults:
         firstdefault = len(args) - len(defaults)
@@ -1268,11 +1249,7 @@ def formatargspec(args, varargs=None, varkw=None, defaults=None,
         result += formatreturns(formatannotation(annotations['return']))
     return result
 
-def formatargvalues(args, varargs, varkw, locals,
-                    formatarg=str,
-                    formatvarargs=lambda name: '*' + name,
-                    formatvarkw=lambda name: '**' + name,
-                    formatvalue=lambda value: '=' + repr(value)):
+def formatargvalues(args, varargs, varkw, locals, formatarg=str, formatvarargs=lambda name: f'*{name}', formatvarkw=lambda name: f'**{name}', formatvalue=lambda value: f'={repr(value)}'):
     """Format an argument spec from the 4 values returned by getargvalues.
 
     The first four arguments are (args, varargs, varkw, locals).  The
@@ -1337,9 +1314,6 @@ def getcallargs(func, /, *positional, **named):
     spec = getfullargspec(func)
     args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, ann = spec
     f_name = func.__name__
-    arg2value = {}
-
-
     if ismethod(func) and func.__self__ is not None:
         # implicit 'self' (or 'cls' for classmethods) argument
         positional = (func.__self__,) + positional
@@ -1348,8 +1322,7 @@ def getcallargs(func, /, *positional, **named):
     num_defaults = len(defaults) if defaults else 0
 
     n = min(num_pos, num_args)
-    for i in range(n):
-        arg2value[args[i]] = positional[i]
+    arg2value = {args[i]: positional[i] for i in range(n)}
     if varargs:
         arg2value[varargs] = tuple(positional[n:])
     possible_kwargs = set(args + kwonlyargs)
@@ -1561,9 +1534,11 @@ def _shadowed_dict(klass):
         except KeyError:
             pass
         else:
-            if not (type(class_dict) is types.GetSetDescriptorType and
-                    class_dict.__name__ == "__dict__" and
-                    class_dict.__objclass__ is entry):
+            if (
+                type(class_dict) is not types.GetSetDescriptorType
+                or class_dict.__name__ != "__dict__"
+                or class_dict.__objclass__ is not entry
+            ):
                 return class_dict
     return _sentinel
 
@@ -1590,10 +1565,15 @@ def getattr_static(obj, attr, default=_sentinel):
 
     klass_result = _check_class(klass, attr)
 
-    if instance_result is not _sentinel and klass_result is not _sentinel:
-        if (_check_class(type(klass_result), '__get__') is not _sentinel and
-            _check_class(type(klass_result), '__set__') is not _sentinel):
-            return klass_result
+    if (
+        instance_result is not _sentinel
+        and klass_result is not _sentinel
+        and (
+            _check_class(type(klass_result), '__get__') is not _sentinel
+            and _check_class(type(klass_result), '__set__') is not _sentinel
+        )
+    ):
+        return klass_result
 
     if instance_result is not _sentinel:
         return instance_result
@@ -1633,9 +1613,7 @@ def getgeneratorstate(generator):
         return GEN_RUNNING
     if generator.gi_frame is None:
         return GEN_CLOSED
-    if generator.gi_frame.f_lasti == -1:
-        return GEN_CREATED
-    return GEN_SUSPENDED
+    return GEN_CREATED if generator.gi_frame.f_lasti == -1 else GEN_SUSPENDED
 
 
 def getgeneratorlocals(generator):
@@ -1649,10 +1627,7 @@ def getgeneratorlocals(generator):
         raise TypeError("{!r} is not a Python generator".format(generator))
 
     frame = getattr(generator, "gi_frame", None)
-    if frame is not None:
-        return generator.gi_frame.f_locals
-    else:
-        return {}
+    return generator.gi_frame.f_locals if frame is not None else {}
 
 
 # ------------------------------------------------ coroutine introspection
@@ -1675,9 +1650,7 @@ def getcoroutinestate(coroutine):
         return CORO_RUNNING
     if coroutine.cr_frame is None:
         return CORO_CLOSED
-    if coroutine.cr_frame.f_lasti == -1:
-        return CORO_CREATED
-    return CORO_SUSPENDED
+    return CORO_CREATED if coroutine.cr_frame.f_lasti == -1 else CORO_SUSPENDED
 
 
 def getcoroutinelocals(coroutine):
@@ -1687,10 +1660,7 @@ def getcoroutinelocals(coroutine):
     A dict is returned, with the keys the local variable names and values the
     bound values."""
     frame = getattr(coroutine, "cr_frame", None)
-    if frame is not None:
-        return frame.f_locals
-    else:
-        return {}
+    return frame.f_locals if frame is not None else {}
 
 
 ###############################################################################
@@ -1815,14 +1785,10 @@ def _signature_bound_method(sig):
         # Drop first parameter:
         # '(p1, p2[, ...])' -> '(p2[, ...])'
         params = params[1:]
-    else:
-        if kind is not _VAR_POSITIONAL:
-            # Unless we add a new parameter type we never
-            # get here
-            raise ValueError('invalid argument type')
-        # It's a var-positional parameter.
-        # Do nothing. '(*args[, ...])' -> '(*args[, ...])'
-
+    elif kind is not _VAR_POSITIONAL:
+        # Unless we add a new parameter type we never
+        # get here
+        raise ValueError('invalid argument type')
     return sig.replace(parameters=params)
 
 
@@ -1949,7 +1915,7 @@ def _signature_strip_non_python_syntax(signature):
 
         if delayed_comma:
             delayed_comma = False
-            if not ((type == OP) and (string == ')')):
+            if type != OP or string != ')':
                 add(', ')
         add(string)
         if (string == ','):
@@ -1971,7 +1937,7 @@ def _signature_fromstr(cls, obj, s, skip_bound_arg=True):
     clean_signature, self_parameter, last_positional_only = \
         _signature_strip_non_python_syntax(s)
 
-    program = "def foo" + clean_signature + ": pass"
+    program = f"def foo{clean_signature}: pass"
 
     try:
         module = ast.parse(program)
@@ -2105,11 +2071,10 @@ def _signature_from_builtin(cls, func, skip_bound_arg=True):
         raise TypeError("{!r} is not a Python builtin "
                         "function".format(func))
 
-    s = getattr(func, "__text_signature__", None)
-    if not s:
+    if s := getattr(func, "__text_signature__", None):
+        return _signature_fromstr(cls, func, s, skip_bound_arg)
+    else:
         raise ValueError("no signature found for builtin {!r}".format(func))
-
-    return _signature_fromstr(cls, func, s, skip_bound_arg)
 
 
 def _signature_from_function(cls, func, skip_bound_arg=True):
@@ -2124,8 +2089,7 @@ def _signature_from_function(cls, func, skip_bound_arg=True):
             # of pure function:
             raise TypeError('{!r} is not a Python function'.format(func))
 
-    s = getattr(func, "__text_signature__", None)
-    if s:
+    if s := getattr(func, "__text_signature__", None):
         return _signature_fromstr(cls, func, s, skip_bound_arg)
 
     Parameter = cls._parameter_cls
@@ -2142,11 +2106,7 @@ def _signature_from_function(cls, func, skip_bound_arg=True):
     defaults = func.__defaults__
     kwdefaults = func.__kwdefaults__
 
-    if defaults:
-        pos_default_count = len(defaults)
-    else:
-        pos_default_count = 0
-
+    pos_default_count = len(defaults) if defaults else 0
     parameters = []
 
     non_default_count = pos_count - pos_default_count

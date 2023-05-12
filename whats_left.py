@@ -55,8 +55,7 @@ def parse_args():
         help="print output as JSON (instead of line by line)",
     )
 
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 args = parse_args()
@@ -150,9 +149,7 @@ def extra_info(obj):
 def name_sort_key(name):
     if name == "builtins":
         return ""
-    if name[0] == "_":
-        return name[1:] + "1"
-    return name + "2"
+    return f"{name[1:]}1" if name[0] == "_" else f"{name}2"
 
 
 def gen_methods():
@@ -206,10 +203,11 @@ def gen_methods():
     methods = {}
     for typ_code in objects + iters:
         typ = eval(typ_code)
-        attrs = []
-        for attr in dir(typ):
-            if attr_is_not_inherited(typ, attr):
-                attrs.append((attr, extra_info(getattr(typ, attr))))
+        attrs = [
+            (attr, extra_info(getattr(typ, attr)))
+            for attr in dir(typ)
+            if attr_is_not_inherited(typ, attr)
+        ]
         methods[typ.__name__] = (typ_code, extra_info(typ), attrs)
 
     output = "expected_methods = {\n"
@@ -233,7 +231,7 @@ def scan_modules():
 
     def callback(path, modname, desc, modules=modules):
         if modname and modname[-9:] == ".__init__":
-            modname = modname[:-9] + " (package)"
+            modname = f"{modname[:-9]} (package)"
         if modname.find(".") < 0:
             modules[modname] = 1
 
@@ -370,9 +368,8 @@ def compare():
         if missing_methods:
             not_implementeds[name] = missing_methods
 
-    if platform.python_implementation() == "CPython":
-        if not_implementeds:
-            sys.exit("ERROR: CPython should have all the methods")
+    if platform.python_implementation() == "CPython" and not_implementeds:
+        sys.exit("ERROR: CPython should have all the methods")
 
     mod_names = [
         name.decode()

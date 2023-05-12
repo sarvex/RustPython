@@ -48,9 +48,9 @@ except ImportError:
         if isinstance(path_repr, (str, bytes)):
             return path_repr
         else:
-            raise TypeError("expected {}.__fspath__() to return str or bytes, "
-                            "not {}".format(path_type.__name__,
-                                            type(path_repr).__name__))
+            raise TypeError(
+                f"expected {path_type.__name__}.__fspath__() to return str or bytes, not {type(path_repr).__name__}"
+            )
 
     class PathLike(abc.ABC):
 
